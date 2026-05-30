@@ -161,11 +161,16 @@ class TextTokenizer:
             ch = text[i]
             is_opener = ch in self.pair_map
 
-            # 英文单词空格保护
+            # 英文/数字空格保护（仅 ASCII 字母/数字之间的空格不拆）
             if ch == " ":
                 prev = text[i - 1] if i > 0 else ""
                 next_ = text[i + 1] if i + 1 < len(text) else ""
-                if prev.isalnum() and next_.isalnum():
+                if (
+                    prev.isascii()
+                    and prev.isalnum()
+                    and next_.isascii()
+                    and next_.isalnum()
+                ):
                     buf += ch
                     i += 1
                     continue
@@ -203,7 +208,17 @@ class TextTokenizer:
             if m:
                 seg = m.group()
                 if seg.strip() == "":
-                    buf += seg
+                    # 只有被 split pattern 命中的空白才作为分段符
+                    if buf.strip():
+                        buf += seg
+                        yield Token(
+                            self._restore_kaomoji(buf, mapping),
+                            True,
+                            self._get_split_priority(seg),
+                        )
+                        buf = ""
+                    else:
+                        buf = ""
                     i += len(seg)
                     continue
                 buf += seg
