@@ -519,6 +519,28 @@
                 "hint": "转发消息时使用的昵称。留空则自动使用 Bot 当前昵称",
                 "type": "string",
                 "default": ""
+            },
+            "node_max_length": {
+                "description": "单个转发节点目标长度",
+                "hint": "合并转发内每条聊天记录节点期望容纳的文本长度。达到该长度后会优先寻找附近的句号、换行等自然断点，避免一句话被切得太碎。",
+                "type": "int",
+                "slider": {
+                    "min": 100,
+                    "max": 3000,
+                    "step": 50
+                },
+                "default": 1000
+            },
+            "node_hard_limit": {
+                "description": "单个转发节点硬上限",
+                "hint": "合并转发内单个节点的最大文本长度。超过后一定会强制切开，用来避开 QQ/NapCat 对单条转发节点的隐藏限制。",
+                "type": "int",
+                "slider": {
+                    "min": 100,
+                    "max": 3000,
+                    "step": 50
+                },
+                "default": 1200
             }
         }
     },

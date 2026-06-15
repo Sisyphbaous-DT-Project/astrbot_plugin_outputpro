@@ -185,6 +185,34 @@ class ReplyConfig(ConfigNode):
 class ForwardConfig(ConfigNode):
     threshold: int
     node_name: str
+    node_max_length: int = 1000
+    node_hard_limit: int = 1200
+
+    def __init__(self, data: MutableMapping[str, Any]):
+        super().__init__(data)
+        default_target = type(self).node_max_length
+        default_hard = type(self).node_hard_limit
+        try:
+            target = int(data.get("node_max_length", default_target))
+        except Exception:
+            target = default_target
+        try:
+            hard = int(data.get("node_hard_limit", default_hard))
+        except Exception:
+            hard = default_hard
+
+        if target <= 0:
+            target = default_target
+        if hard <= 0:
+            hard = default_hard
+        if target > hard:
+            logger.warning(
+                "[config:ForwardConfig] node_max_length 大于 node_hard_limit，已自动收敛到合理顺序"
+            )
+            target = hard
+
+        object.__setattr__(self, "node_max_length", target)
+        object.__setattr__(self, "node_hard_limit", hard)
 
 
 class RecallConfig(ConfigNode):

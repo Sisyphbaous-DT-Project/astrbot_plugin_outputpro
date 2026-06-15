@@ -47,6 +47,72 @@ class ForwardStep(BaseStep):
             self._bot_name_cache[bot_id] = node_name
         return node_name
 
+    def _find_forward_split_pos(
+        self, text: str, target_len: int, hard_limit: int
+    ) -> int:
+        if len(text) <= target_len:
+            return len(text)
+
+        split_re = getattr(self.plugin_config.split, "split_re", None)
+        if split_re:
+            search_end = min(hard_limit, len(text))
+            for match in split_re.finditer(
+                text, target_len, search_end
+            ):
+                return match.end()
+
+            previous_end = 0
+            for match in split_re.finditer(text, 0, min(target_len, len(text))):
+                if match.end() > 0:
+                    previous_end = match.end()
+            if previous_end > 0:
+                return previous_end
+
+        if len(text) > hard_limit:
+            return hard_limit
+
+        return min(hard_limit, len(text))
+
+    def _build_forward_nodes(self, chain: list, uin: str, name: str) -> Nodes:
+        nodes = Nodes([])
+        current_content = []
+        current_text_len = 0
+        target_len = int(self.cfg.node_max_length)
+        hard_limit = int(self.cfg.node_hard_limit)
+
+        def flush_current():
+            nonlocal current_content, current_text_len
+            if current_content:
+                nodes.nodes.append(Node(uin=uin, name=name, content=current_content))
+            current_content = []
+            current_text_len = 0
+
+        for comp in chain:
+            if not isinstance(comp, Plain):
+                current_content.append(comp)
+                continue
+
+            rest = comp.text or ""
+            while rest:
+                if current_text_len >= target_len:
+                    flush_current()
+
+                remaining_target = max(1, target_len - current_text_len)
+                remaining_hard = max(1, hard_limit - current_text_len)
+                split_pos = self._find_forward_split_pos(
+                    rest, remaining_target, remaining_hard
+                )
+                split_pos = max(1, min(split_pos, remaining_hard, len(rest)))
+                current_content.append(Plain(rest[:split_pos]))
+                current_text_len += split_pos
+                rest = rest[split_pos:]
+
+                if rest:
+                    flush_current()
+
+        flush_current()
+        return nodes
+
     def _tg_utf16_len(self, text: str) -> int:
         if not text:
             return 0
@@ -172,23 +238,24 @@ class ForwardStep(BaseStep):
         return sent > 0
 
     async def handle(self, ctx: OutContext) -> StepResult:
-        if (
-            ctx.chain
-            and isinstance(ctx.chain[-1], Plain)
-            and len(ctx.chain[-1].text) > self.cfg.threshold
-        ):
+        if ctx.chain and isinstance(ctx.chain[-1], Plain):
             platform_name = ctx.event.get_platform_name()
 
-            if platform_name == "aiocqhttp":
-                nodes = Nodes([])
+            if (
+                platform_name == "aiocqhttp"
+                and sum(len(c.text) for c in ctx.chain if isinstance(c, Plain))
+                > self.cfg.threshold
+            ):
                 name = await self._ensure_node_name(ctx.event)
                 uin = str(ctx.event.get_self_id() or ctx.bid)
-                content = list(ctx.chain.copy())
-                nodes.nodes.append(Node(uin=uin, name=name, content=content))
+                nodes = self._build_forward_nodes(ctx.chain, uin, name)
                 ctx.chain[:] = [nodes]
-                return StepResult(msg="已将消息转换为转发节点")
+                return StepResult(msg=f"已将消息转换为 {len(nodes.nodes)} 个转发节点")
 
-            elif platform_name == "telegram":
+            elif (
+                platform_name == "telegram"
+                and len(ctx.chain[-1].text) > self.cfg.threshold
+            ):
                 text = ctx.chain[-1].text
                 messages = self._tg_split_by_utf16(text, self._tg_single_message_limit)
                 success = await self._send_tg_expandable_blocks(ctx.event, messages)
