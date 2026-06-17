@@ -26,9 +26,26 @@ class SummaryStep(BaseStep):
         """
         把 summary.quotes 与 summary.quotes_files 里的金句全部合并成一个 list
         """
-        quotes: list[str] = list(self.cfg.quotes)
+        raw_quotes = self.cfg.quotes
+        raw_files = self.cfg.quotes_files
+        if not isinstance(raw_quotes, list):
+            logger.warning("[summary] quotes 不是 list，已回退为空列表")
+            raw_quotes = []
+        if not isinstance(raw_files, list):
+            logger.warning("[summary] quotes_files 不是 list，已回退为空列表")
+            raw_files = []
 
-        for file_path in self.cfg.quotes_files:
+        quotes: list[str] = [q for q in raw_quotes if isinstance(q, str)]
+        if len(quotes) != len(raw_quotes):
+            logger.warning("[summary] quotes 中包含非字符串条目，已自动过滤")
+
+        for file_path in raw_files:
+            if not isinstance(file_path, str):
+                logger.warning(
+                    "[summary] quotes_files 中包含非字符串路径，已跳过：%s",
+                    file_path,
+                )
+                continue
             path = Path(file_path)
             if not path.exists():
                 logger.warning(f"金句文件不存在，已跳过：{path}")
@@ -37,12 +54,19 @@ class SummaryStep(BaseStep):
                 with path.open(encoding="utf-8") as f:
                     data = json.load(f)
                     if isinstance(data, list):
-                        quotes.extend(data)
+                        file_quotes = [q for q in data if isinstance(q, str)]
+                        if len(file_quotes) != len(data):
+                            logger.warning(
+                                "金句文件包含非字符串条目，已自动过滤：%s",
+                                path,
+                            )
+                        quotes.extend(file_quotes)
                     else:
                         logger.warning(f"金句文件内容不是 list，已跳过：{path}")
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning("读取金句文件失败 %s: %s", path, e)
-        return quotes
+        # 合并后去重并保留顺序
+        return list(dict.fromkeys(quotes))
 
     async def handle(self, ctx: OutContext) -> StepResult:
         """图片外显（直接发送并中断流水线）"""
@@ -51,6 +75,10 @@ class SummaryStep(BaseStep):
             and len(ctx.chain) == 1
             and isinstance(ctx.chain[0], Image)
         ):
+            if not self.quotes:
+                logger.warning("图片外显金句列表为空，已跳过外显")
+                return StepResult()
+
             obmsg = await ctx.event._parse_onebot_json(MessageChain(ctx.chain))
             quote = random.choice(self.quotes)
             obmsg[0]["data"]["summary"] = quote

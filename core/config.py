@@ -1,6 +1,7 @@
 # config.py
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping, MutableMapping
 from pathlib import Path
@@ -304,3 +305,75 @@ class PluginConfig(ConfigNode):
         self.context = context
         self.admins_id: list[str] = context.get_config().get("admins_id", [])
         self.data_dir = Path(get_astrbot_data_path()) / self._plugin_name
+        self._migrate_summary_quotes(cfg)
+
+    @staticmethod
+    def _migrate_summary_quotes(cfg: AstrBotConfig) -> None:
+        """一次性迁移：把外部默认金句文件合并到 summary.quotes 中"""
+        old_default_quotes = {
+            "你已被移出群聊",
+            "[群主女装图]",
+            "哎呦，你干嘛~",
+            "Ciallo～(∠・ω< )⌒☆",
+        }
+        old_default_file = "data/plugins/astrbot_plugin_outputpro/default_quotes.json"
+
+        summary = cfg.get("summary")
+        if not isinstance(summary, MutableMapping):
+            return
+
+        quotes = summary.get("quotes")
+        quotes_files = summary.get("quotes_files")
+        if not isinstance(quotes, list) or not isinstance(quotes_files, list):
+            return
+
+        # 只在仍是旧 4 条默认值时触发，避免误伤用户自定义内容
+        if len(quotes) != len(old_default_quotes):
+            return
+        if any(not isinstance(item, str) for item in quotes):
+            return
+        if set(quotes) != old_default_quotes:
+            return
+        # 只有仍引用旧默认文件时，才执行迁移
+        if old_default_file not in [item for item in quotes_files if isinstance(item, str)]:
+            return
+
+        default_quotes_path = (
+            Path(__file__).resolve().parent.parent / "default_quotes.json"
+        )
+        if not default_quotes_path.exists():
+            logger.warning(
+                "[config:migrate] 默认金句文件 %s 不存在，跳过迁移",
+                default_quotes_path,
+            )
+            return
+
+        try:
+            with default_quotes_path.open(encoding="utf-8") as f:
+                extra_quotes = json.load(f)
+            if not isinstance(extra_quotes, list):
+                logger.warning(
+                    "[config:migrate] 默认金句文件内容不是 list，跳过迁移"
+                )
+                return
+            filtered_extra_quotes = [
+                item for item in extra_quotes if isinstance(item, str)
+            ]
+            if len(filtered_extra_quotes) != len(extra_quotes):
+                logger.warning(
+                    "[config:migrate] 默认金句文件中包含非字符串条目，已自动过滤"
+                )
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("[config:migrate] 读取默认金句文件失败: %s", e)
+            return
+
+        # 合并到 quotes 前部并去重，同时移除旧的默认文件路径
+        merged = list(dict.fromkeys(quotes + filtered_extra_quotes))
+        summary["quotes"] = merged
+        summary["quotes_files"] = [p for p in quotes_files if p != old_default_file]
+        cfg.save_config()
+        logger.info(
+            "[config:migrate] 已将默认金句文件内容合并到 summary.quotes，"
+            "共 %d 条，并移除默认 quotes_files 引用",
+            len(merged),
+        )
