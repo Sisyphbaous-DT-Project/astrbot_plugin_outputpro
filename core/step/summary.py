@@ -80,10 +80,35 @@ class SummaryStep(BaseStep):
                 return StepResult()
 
             obmsg = await ctx.event._parse_onebot_json(MessageChain(ctx.chain))
+            if not obmsg:
+                logger.warning("[summary] 图片消息解析为空，跳过图片外显")
+                return StepResult()
+
             quote = random.choice(self.quotes)
             obmsg[0]["data"]["summary"] = quote
 
-            await ctx.event.bot.send(ctx.event.message_obj.raw_message, obmsg)  # type: ignore
+            raw_event = getattr(ctx.event.message_obj, "raw_message", None)
+            is_group = bool(ctx.event.get_group_id())
+            raw_session_id = ctx.event.get_group_id() if is_group else ctx.event.get_sender_id()
+            session_id = str(raw_session_id) if raw_session_id else None
+
+            try:
+                await AiocqhttpMessageEvent._dispatch_send(
+                    bot=ctx.event.bot,
+                    event=raw_event,
+                    is_group=is_group,
+                    session_id=session_id,
+                    messages=obmsg,
+                )
+            except ValueError:
+                # 缺少有效数字 session_id 或 event，无法安全直发，保留原 chain 走标准链路
+                logger.warning(
+                    "[summary] 无法安全直发图片外显，跳过 summary：has_session_id=%s, raw_event_type=%s",
+                    bool(session_id),
+                    type(raw_event).__name__,
+                )
+                return StepResult()
+
             ctx.event.should_call_llm(True)
             ctx.chain.clear()
 
