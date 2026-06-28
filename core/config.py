@@ -180,7 +180,18 @@ class T2IConfig(ConfigNode):
 
 class ReplyConfig(ConfigNode):
     threshold: int
+    queue_maxlen: int = 200
     include_at: bool
+
+    def __init__(self, data: MutableMapping[str, Any]):
+        super().__init__(data)
+        try:
+            queue_maxlen = int(data.get("queue_maxlen", type(self).queue_maxlen))
+        except Exception:
+            queue_maxlen = type(self).queue_maxlen
+        if queue_maxlen <= 0:
+            queue_maxlen = type(self).queue_maxlen
+        object.__setattr__(self, "queue_maxlen", queue_maxlen)
 
 
 class ForwardConfig(ConfigNode):

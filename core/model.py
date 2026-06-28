@@ -14,12 +14,22 @@ class GroupState(BaseModel):
     """群号"""
     bot_msgs: deque = Field(default_factory=lambda: deque(maxlen=5))
     """Bot消息缓存"""
-    msg_queue: deque[str] = Field(default_factory=lambda: deque(maxlen=10))
-    """用户消息缓存"""
-    last_reply_mark_msg_id: str | None = None
-    """最近一次追加 bot 插嘴标记对应的消息 ID（用于去重）"""
+    msg_queue: deque[str] = Field(default_factory=lambda: deque(maxlen=200))
+    """群消息缓存"""
+    recent_replied_msg_ids: deque[str] = Field(default_factory=lambda: deque(maxlen=200))
+    """近期已插入引用的触发消息 ID（用于去重）"""
     name_to_qq: OrderedDict[str, str] = Field(default_factory=lambda: OrderedDict())
     """昵称 -> QQ"""
+
+    def resize_msg_queue(self, maxlen: int) -> None:
+        """按配置调整群消息追踪窗口，保留最近的消息 ID。"""
+        if maxlen <= 0 or self.msg_queue.maxlen == maxlen:
+            return
+        self.msg_queue = deque(self.msg_queue, maxlen=maxlen)
+        self.recent_replied_msg_ids = deque(
+            self.recent_replied_msg_ids,
+            maxlen=maxlen,
+        )
 
 
 class StateManager:

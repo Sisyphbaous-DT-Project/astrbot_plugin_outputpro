@@ -30,6 +30,7 @@ class OutputPlugin(Star):
         g = StateManager.get_group(gid)
 
         if self.cfg.reply.threshold > 0 and sender_id != self_id:
+            g.resize_msg_queue(self.cfg.reply.queue_maxlen)
             g.msg_queue.append(event.message_obj.message_id)
 
         if self.cfg.pipeline.is_enabled_step(StepName.AT) and not self.cfg.at.at_str:
